@@ -29,7 +29,7 @@ pub struct LevelTextures {
 }
 
 static SCREEN_WIDTH: u32 = 800;
-static SCREEN_HEIGHT: u32 = 600;
+static SCREEN_HEIGHT: u32 = 480;
 
 macro_rules! rect (
     ($x:expr, $y:expr, $w:expr, $h:expr) => (
@@ -55,12 +55,12 @@ fn get_centered_rect(rect_width: u32, rect_height: u32, cons_width: u32, cons_he
         (rect_width as i32, rect_height as i32)
     };
 
-    let cx = (SCREEN_WIDTH as i32 - w) / 2;
-    let cy = (SCREEN_HEIGHT as i32 - h) / 2;
+    let cx = (cons_width as i32 - w) / 2;
+    let cy = (cons_height as i32 - h) / 2;
     rect!(cx, cy, w, h)
 }
 
-pub fn init_gfx(font: &mut Font, renderer: &mut Renderer) -> LevelTextures {
+fn init_gfx(font: &mut Font, renderer: &mut Renderer, disp_size: Rect) -> LevelTextures {
     let surface_label = font.render("Level:")
         .blended(Color::RGBA(196, 151, 102, 255)).unwrap();
     let surface_level_high = font.render("HIGH")
@@ -84,8 +84,8 @@ pub fn init_gfx(font: &mut Font, renderer: &mut Renderer) -> LevelTextures {
 
     // If the example text is too big for the screen, downscale it (and center irregardless)
     let padding = 32;
-    let mut target_label = get_centered_rect(width_label, height_label, SCREEN_WIDTH - padding, SCREEN_HEIGHT - padding);
-    let mut target_level = get_centered_rect(width_level, height_level, SCREEN_WIDTH - padding, SCREEN_HEIGHT - padding);
+    let mut target_label = get_centered_rect(width_label, height_label, disp_size.width() - padding, disp_size.height() - padding);
+    let mut target_level = get_centered_rect(width_level, height_level, disp_size.width() - padding, disp_size.height() - padding);
 
     let new_y_label = (target_label.y() as f32 - (target_label.height() as f32 / 2f32)) as i32;
     let new_y_level = (target_level.y() as f32 + (target_level.height() as f32 / 2f32)) as i32;
@@ -116,8 +116,8 @@ pub fn run(font_path: &Path, level_config: &LevelConfig, tty_usb: &mut File, mut
     let video_subsys = sdl_context.video().unwrap();
     let ttf_context = sdl2_ttf::init().unwrap();
 
-
-    let window = video_subsys.window("SDL2_TTF Example", SCREEN_WIDTH, SCREEN_HEIGHT)
+    let disp_size = video_subsys.display_bounds(0).ok().expect("Could not read size of display 0");
+    let window = video_subsys.window("SDL2_TTF Example", disp_size.width(), disp_size.height())
         .position_centered()
         .opengl()
         .build()
@@ -134,7 +134,7 @@ pub fn run(font_path: &Path, level_config: &LevelConfig, tty_usb: &mut File, mut
     font.set_style(sdl2_ttf::STYLE_BOLD);
     font_percent.set_style(sdl2_ttf::STYLE_BOLD);
 
-    let mut tex_levels = init_gfx(&mut font, &mut renderer);
+    let mut tex_levels = init_gfx(&mut font, &mut renderer, disp_size);
 
     'mainloop: loop {
         // factor this into a separate thread/future/concept for concurrency of the day
@@ -155,7 +155,7 @@ pub fn run(font_path: &Path, level_config: &LevelConfig, tty_usb: &mut File, mut
                     .blended(Color::RGBA(255, 255, 255, 255)).unwrap();
                 let mut coffee_tex = renderer.create_texture_from_surface(&surface_coffee_percent).unwrap();
                 let TextureQuery { width, height, .. } = coffee_tex.query();
-                let coffe_tex_rect = rect!(SCREEN_WIDTH - 32 - width, SCREEN_HEIGHT - 32 - height, width, height);
+                let coffe_tex_rect = rect!(disp_size.width() - 32 - width, disp_size.height() - 32 - height, width, height);
                 renderer.copy(&coffee_tex, None, Some(coffe_tex_rect));
 
                 renderer.present();

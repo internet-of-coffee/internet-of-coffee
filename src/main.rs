@@ -97,7 +97,7 @@ fn handle_value(line: &str, level_config: &LevelConfig, log_file: &mut File) -> 
             Err(_) => (Colour::Cyan.paint("UNKNOWN"), None),
         };
 
-        println!("{}\nCoffee level: {}", data_str, parse_res.0);
+        println!("{}Coffee level: {}", data_str, parse_res.0);
 
         if parse_res.1 != None {
             let _ = log_file.write(data_str.into_bytes().as_slice());
