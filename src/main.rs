@@ -66,7 +66,14 @@ pub fn read_and_log(tty_usb: &mut File, mut log_file: &mut File, level_config: &
     let mut data: [u8; 512] = [0u8; 512];
     let num_bytes = tty_usb.read(&mut data).unwrap();
     match std::str::from_utf8(&data[0..num_bytes]) {
-        Ok(l) => Some(handle_value(l.trim(), level_config, &mut log_file)),
+        Ok(l) => {
+            let txt = l.trim();
+            if txt.len() == 0 {
+                None
+            } else {
+                handle_value(txt, level_config, &mut log_file)
+            }
+        },
         Err(e) => {
             // "Could not convert data from tty to UTF-8 string"
             println!("{}", Colour::Purple.paint(e.to_string()));
@@ -75,8 +82,8 @@ pub fn read_and_log(tty_usb: &mut File, mut log_file: &mut File, level_config: &
     }
 }
 
-fn handle_value(line: &str, level_config: &LevelConfig, log_file: &mut File) -> u32 {
-    if line.len() == 0 { 0 } else {
+fn handle_value(line: &str, level_config: &LevelConfig, log_file: &mut File) -> Option<u32> {
+    if line.len() == 0 { None } else {
         let regex_pattern = r"\d+";
         let weight_matcher = Regex::new(regex_pattern).unwrap();
         let now = chrono::UTC::now();
@@ -101,9 +108,9 @@ fn handle_value(line: &str, level_config: &LevelConfig, log_file: &mut File) -> 
 
         if parse_res.1 != None {
             let _ = log_file.write(data_str.into_bytes().as_slice());
-            parse_res.1.unwrap()
+            Some(parse_res.1.unwrap())
         } else {
-            0
+            None
         }
     }
 }
