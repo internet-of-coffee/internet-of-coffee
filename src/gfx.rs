@@ -151,7 +151,7 @@ pub fn run(font_path: &Path, level_config: &LevelConfig, tty_usb: &mut File, mut
                 let corrected_weight = if weight < level_config.min { level_config.min } else { weight };
                 let mut coffee_ratio = (corrected_weight - level_config.min) as f32 / (level_config.max - level_config.min) as f32;
                 let coffee_percent = if coffee_ratio < 0f32 { 0f32 } else { coffee_ratio * 100f32 };
-                let surface_coffee_percent = font_percent.render(format!("{}% kaffe", coffee_percent).as_str())
+                let surface_coffee_percent = font_percent.render(format!("{:.2}% kaffe", coffee_percent).as_str())
                     .blended(Color::RGBA(255, 255, 255, 255)).unwrap();
                 let mut coffee_tex = renderer.create_texture_from_surface(&surface_coffee_percent).unwrap();
                 let TextureQuery { width, height, .. } = coffee_tex.query();
