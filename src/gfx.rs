@@ -116,7 +116,8 @@ pub fn run(font_path: &Path, level_config: &LevelConfig, tty_usb: &mut File, mut
     let video_subsys = sdl_context.video().unwrap();
     let ttf_context = sdl2_ttf::init().unwrap();
 
-    let disp_size = video_subsys.display_bounds(0).ok().expect("Could not read size of display 0");
+    //let disp_size = video_subsys.display_bounds(0).ok().expect("Could not read size of display 0");
+    let disp_size = Rect::new(0i32, 0i32, SCREEN_WIDTH, SCREEN_HEIGHT);
     let window = video_subsys.window("SDL2_TTF Example", disp_size.width(), disp_size.height())
         .position_centered()
         .opengl()
@@ -157,6 +158,13 @@ pub fn run(font_path: &Path, level_config: &LevelConfig, tty_usb: &mut File, mut
                 let TextureQuery { width, height, .. } = coffee_tex.query();
                 let coffe_tex_rect = rect!(disp_size.width() - 32 - width, disp_size.height() - 32 - height, width, height);
                 renderer.copy(&coffee_tex, None, Some(coffe_tex_rect));
+
+                let surface_weight = font_percent.render(format!("Weight: {} g", weight).as_str()).blended(Color::RGBA(255,255,255,255)).unwrap();
+                let mut weight_tex = renderer.create_texture_from_surface(&surface_weight).unwrap();
+                let TextureQuery { width, height, .. } = weight_tex.query();
+                 
+                let weight_tex_rect = rect!(32, disp_size.height() - 32 - height, width, height);
+                renderer.copy(&weight_tex, None, Some(weight_tex_rect));
 
                 renderer.present();
             },
