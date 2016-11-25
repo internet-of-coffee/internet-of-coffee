@@ -1,8 +1,11 @@
 extern crate sdl2;
 extern crate sdl2_ttf;
 
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::sync::mpsc;
 use std::path::Path;
-use std::fs::File;
+//use std::fs::File;
 
 use gfx::sdl2::event::Event;
 use gfx::sdl2::keyboard::Keycode;
@@ -13,10 +16,13 @@ use gfx::sdl2::pixels::Color;
 use gfx::sdl2::render::Texture;
 use gfx::sdl2_ttf::Font;
 
+use std::time::{Duration, SystemTime};
+
 use super::LevelConfig;
 use super::CoffeeLevel;
+use super::TtyReaderAndLogger;
 
-use super::{select_level, read_and_log};
+use super::{select_level};
 
 pub struct LevelTextures {
     high: Texture,
@@ -70,17 +76,17 @@ fn init_gfx(font: &mut Font, renderer: &mut Renderer, disp_size: Rect) -> LevelT
     let surface_level_low = font.render("LOW")
         .blended(Color::RGBA(255, 43, 26, 255)).unwrap();
 
-    let mut texture_label = renderer.create_texture_from_surface(&surface_label).unwrap();
-    let mut texture_level_high = renderer.create_texture_from_surface(&surface_level_high).unwrap();
-    let mut texture_level_normal = renderer.create_texture_from_surface(&surface_level_normal).unwrap();
-    let mut texture_level_low = renderer.create_texture_from_surface(&surface_level_low).unwrap();
+    let texture_label = renderer.create_texture_from_surface(&surface_label).unwrap();
+    let texture_level_high = renderer.create_texture_from_surface(&surface_level_high).unwrap();
+    let texture_level_normal = renderer.create_texture_from_surface(&surface_level_normal).unwrap();
+    let texture_level_low = renderer.create_texture_from_surface(&surface_level_low).unwrap();
 
     let TextureQuery { width, height, .. } = texture_label.query();
-    let mut width_label = width;
-    let mut height_label = height;
+    let width_label = width;
+    let height_label = height;
     let TextureQuery { width, height, .. } = texture_level_normal.query();
-    let mut width_level = width;
-    let mut height_level = height;
+    let width_level = width;
+    let height_level = height;
 
     // If the example text is too big for the screen, downscale it (and center irregardless)
     let padding = 32;
@@ -111,7 +117,51 @@ fn select_tex_for_level(level: CoffeeLevel, tex_levels: &LevelTextures) -> &Text
     }
 }
 
-pub fn run(font_path: &Path, level_config: &LevelConfig, tty_usb: &mut File, mut log_file: &mut File) {
+struct RenderCtx<'a> {
+    renderer: Renderer<'a>,
+    level_config: LevelConfig,
+    tex_levels: LevelTextures,
+    font_percent: Font,
+    disp_size: Rect
+}
+
+impl<'a> RenderCtx<'a> {
+    fn render(&mut self, weight: u32) {
+        self.renderer.set_draw_color(Color::RGBA(102, 58, 23, 255)); // Brown
+        self.renderer.clear();
+
+        let mut tex_level = select_tex_for_level(select_level(weight, &self.level_config), &self.tex_levels);
+        let _ = self.renderer.copy(&self.tex_levels.texture_label, None, Some(self.tex_levels.target_label));
+        let _ = self.renderer.copy(&mut tex_level, None, Some(self.tex_levels.target_level));
+
+        let corrected_weight = if weight < self.level_config.min { self.level_config.min } else { weight };
+        let coffee_ratio = (corrected_weight - self.level_config.min) as f32 / (self.level_config.max - self.level_config.min) as f32;
+        let coffee_percent = if coffee_ratio < 0f32 { 0f32 } else { coffee_ratio * 100f32 };
+        let surface_coffee_percent = self.font_percent.render(format!("{:.2}% kaffe", coffee_percent).as_str())
+            .blended(Color::RGBA(255, 255, 255, 255)).unwrap();
+        let coffee_tex = self.renderer.create_texture_from_surface(&surface_coffee_percent).unwrap();
+        let TextureQuery { width, height, .. } = coffee_tex.query();
+        let coffe_tex_rect = rect!(self.disp_size.width() - 32 - width, self.disp_size.height() - 32 - height, width, height);
+        let _ = self.renderer.copy(&coffee_tex, None, Some(coffe_tex_rect));
+
+        let surface_weight = self.font_percent.render(format!("Weight: {} g", weight).as_str()).blended(Color::RGBA(255, 255, 255, 255)).unwrap();
+        let weight_tex = self.renderer.create_texture_from_surface(&surface_weight).unwrap();
+        let TextureQuery { width, height, .. } = weight_tex.query();
+
+        let weight_tex_rect = rect!(32, self.disp_size.height() - 32 - height, width, height);
+        let _ = self.renderer.copy(&weight_tex, None, Some(weight_tex_rect));
+
+        self.renderer.present();
+    }
+}
+
+//struct LoggingCtx {
+//    tty_usb: File,
+//    log_file: File,
+//    level_config: LevelConfig,
+//}
+
+pub fn run(font_path: &Path, reader_and_logger: TtyReaderAndLogger) {
     let sdl_context = sdl2::init().unwrap();
     let video_subsys = sdl_context.video().unwrap();
     let ttf_context = sdl2_ttf::init().unwrap();
@@ -135,41 +185,57 @@ pub fn run(font_path: &Path, level_config: &LevelConfig, tty_usb: &mut File, mut
     font.set_style(sdl2_ttf::STYLE_BOLD);
     font_percent.set_style(sdl2_ttf::STYLE_BOLD);
 
-    let mut tex_levels = init_gfx(&mut font, &mut renderer, disp_size);
+    let tex_levels = init_gfx(&mut font, &mut renderer, disp_size);
+
+
+    let (weight_tx, weight_rx) = mpsc::channel();
+    let mut previous_weight = 0;
+
+    let mut render_ctx = RenderCtx {
+        level_config: reader_and_logger.level_config.clone(),
+        disp_size: disp_size,
+        font_percent: font_percent,
+        renderer: renderer,
+        tex_levels: tex_levels,
+    };
+
+    let reader_arc = Arc::new(Mutex::new(reader_and_logger));
+    let reader_clone = reader_arc.clone();
+    let _ = thread::spawn(move || {
+        loop {
+            let mut reader = reader_clone.lock().unwrap();
+            match reader.read_and_log() {
+                Some(weight) => {
+                    previous_weight = weight;
+                    let _ = weight_tx.send(weight);
+                },
+                _ => (),
+            }
+        }
+    });
+
+    let frame_rate = 60f32;
+    let max_frame_time = 1000f32 / frame_rate;
+    let mut frame_time = 0f32;
+    let mut start_time;
 
     'mainloop: loop {
+        start_time = SystemTime::now();
+
         // factor this into a separate thread/future/concept for concurrency of the day
-        match read_and_log(tty_usb, &mut log_file, level_config) {
-            Some(weight) => {
-                renderer.set_draw_color(Color::RGBA(102, 58, 23, 255)); // Brown
-                renderer.clear();
-
-                let mut tex_level = select_tex_for_level(select_level(weight, level_config), &tex_levels);
-                renderer.copy(&tex_levels.texture_label, None, Some(tex_levels.target_label));
-                renderer.copy(&mut tex_level, None, Some(tex_levels.target_level));
-
-
-                let corrected_weight = if weight < level_config.min { level_config.min } else { weight };
-                let mut coffee_ratio = (corrected_weight - level_config.min) as f32 / (level_config.max - level_config.min) as f32;
-                let coffee_percent = if coffee_ratio < 0f32 { 0f32 } else { coffee_ratio * 100f32 };
-                let surface_coffee_percent = font_percent.render(format!("{:.2}% kaffe", coffee_percent).as_str())
-                    .blended(Color::RGBA(255, 255, 255, 255)).unwrap();
-                let mut coffee_tex = renderer.create_texture_from_surface(&surface_coffee_percent).unwrap();
-                let TextureQuery { width, height, .. } = coffee_tex.query();
-                let coffe_tex_rect = rect!(disp_size.width() - 32 - width, disp_size.height() - 32 - height, width, height);
-                renderer.copy(&coffee_tex, None, Some(coffe_tex_rect));
-
-                let surface_weight = font_percent.render(format!("Weight: {} g", weight).as_str()).blended(Color::RGBA(255,255,255,255)).unwrap();
-                let mut weight_tex = renderer.create_texture_from_surface(&surface_weight).unwrap();
-                let TextureQuery { width, height, .. } = weight_tex.query();
-                 
-                let weight_tex_rect = rect!(32, disp_size.height() - 32 - height, width, height);
-                renderer.copy(&weight_tex, None, Some(weight_tex_rect));
-
-                renderer.present();
-            },
-            None => {},
-        }
+        let remaining_time = match max_frame_time - frame_time {
+            v if v > 0f32 => v as u32,
+            _ => 0,
+        };
+        let weight = match weight_rx.recv_timeout(Duration::new(0, remaining_time)) {
+            Ok(weight) => {
+                previous_weight = weight;
+                weight
+            }
+            _ => previous_weight,
+        };
+//        previous_weight = weight;
+        render_ctx.render(weight);
 
         for event in sdl_context.event_pump().unwrap().poll_iter() {
             match event {
@@ -178,6 +244,15 @@ pub fn run(font_path: &Path, level_config: &LevelConfig, tty_usb: &mut File, mut
                 _ => {}
             }
         }
+
+        match start_time.elapsed() {
+            Ok(elapsed) => {
+                frame_time = elapsed.subsec_nanos() as f32 / 1000_000f32;
+            }
+            Err(e) => {
+                // an error occured!
+                println!("Error: {:?}", e);
+            }
+        }
     }
 }
-
