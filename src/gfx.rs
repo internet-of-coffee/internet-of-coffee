@@ -5,7 +5,6 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::sync::mpsc;
 use std::path::Path;
-//use std::fs::File;
 
 use gfx::sdl2::event::Event;
 use gfx::sdl2::keyboard::Keycode;
@@ -155,12 +154,6 @@ impl<'a> RenderCtx<'a> {
     }
 }
 
-//struct LoggingCtx {
-//    tty_usb: File,
-//    log_file: File,
-//    level_config: LevelConfig,
-//}
-
 pub fn run(font_path: &Path, reader_and_logger: TtyReaderAndLogger) {
     let sdl_context = sdl2::init().unwrap();
     let video_subsys = sdl_context.video().unwrap();
@@ -200,10 +193,9 @@ pub fn run(font_path: &Path, reader_and_logger: TtyReaderAndLogger) {
     };
 
     let reader_arc = Arc::new(Mutex::new(reader_and_logger));
-    let reader_clone = reader_arc.clone();
     let _ = thread::spawn(move || {
         loop {
-            let mut reader = reader_clone.lock().unwrap();
+            let mut reader = reader_arc.lock().unwrap();
             match reader.read_and_log() {
                 Some(weight) => {
                     previous_weight = weight;
@@ -222,7 +214,6 @@ pub fn run(font_path: &Path, reader_and_logger: TtyReaderAndLogger) {
     'mainloop: loop {
         start_time = SystemTime::now();
 
-        // factor this into a separate thread/future/concept for concurrency of the day
         let remaining_time = match max_frame_time - frame_time {
             v if v > 0f32 => v as u32,
             _ => 0,
@@ -234,7 +225,6 @@ pub fn run(font_path: &Path, reader_and_logger: TtyReaderAndLogger) {
             }
             _ => previous_weight,
         };
-//        previous_weight = weight;
         render_ctx.render(weight);
 
         for event in sdl_context.event_pump().unwrap().poll_iter() {
@@ -250,7 +240,6 @@ pub fn run(font_path: &Path, reader_and_logger: TtyReaderAndLogger) {
                 frame_time = elapsed.subsec_nanos() as f32 / 1000_000f32;
             }
             Err(e) => {
-                // an error occured!
                 println!("Error: {:?}", e);
             }
         }
