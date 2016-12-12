@@ -1,19 +1,25 @@
 extern crate sdl2;
-extern crate sdl2_ttf;
+//extern crate sdl2_ttf;
+extern crate rand;
+
+use self::rand::Rng;
+use self::rand::distributions::{IndependentSample, Range};
 
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::sync::mpsc;
 use std::path::Path;
 
+
+use gfx::sdl2::image::LoadTexture;
 use gfx::sdl2::event::Event;
 use gfx::sdl2::keyboard::Keycode;
 use gfx::sdl2::rect::Rect;
-use gfx::sdl2::render::TextureQuery;
-use gfx::sdl2::render::Renderer;
+use gfx::sdl2::render::{TextureQuery, Renderer};
 use gfx::sdl2::pixels::Color;
 use gfx::sdl2::render::Texture;
-use gfx::sdl2_ttf::Font;
+use gfx::sdl2::ttf::Font;
+//use gfx::sdl2_ttf::Font;
 
 use std::time::{Duration, SystemTime};
 
@@ -116,18 +122,75 @@ fn select_tex_for_level(level: CoffeeLevel, tex_levels: &LevelTextures) -> &Text
     }
 }
 
+
+#[derive(Copy, Clone)]
+struct Flake<'a> {
+    x: f32,
+    y: f32,
+    vx: f32,
+    vy: f32,
+    size: usize,
+    tex: &'a Texture,
+}
+
+impl<'a> Flake<'a> {
+    fn anim(&mut self, delta_ms: f32) {
+        self.x += (self.vx * delta_ms);
+        self.y += (self.vy * delta_ms);
+
+        if self.y > SCREEN_HEIGHT as f32 || self.x < -64.0 || self.x > SCREEN_WIDTH as f32 + 64.0 {
+            let between = Range::new(0f32, 1.);
+            let mut rng = rand::thread_rng();
+            self.y = -64.;
+            self.x = between.ind_sample(&mut rng) * SCREEN_WIDTH as f32;
+            self.x -= 32.;
+            self.size = (FLAKE_SIZE as f32 + between.ind_sample(&mut rng) * 16.) as usize;
+        }
+     }
+}
+
+const NUM_FLAKES: usize = 50;
+const FLAKE_SIZE: usize = 4;
 struct RenderCtx<'a> {
     renderer: Renderer<'a>,
     level_config: LevelConfig,
     tex_levels: LevelTextures,
-    font_percent: Font,
-    disp_size: Rect
+    font_percent: Font<'a>,
+    disp_size: Rect,
+    flakes: [Flake<'a>; NUM_FLAKES],
 }
-
+const min_down_speed: f32 = 0.05;
 impl<'a> RenderCtx<'a> {
-    fn render(&mut self, weight: u32) {
+    fn init_flakes(&mut self) {
+        let between = Range::new(0f32, 1.);
+        let mut rng = rand::thread_rng();
+        for i in 0..self.flakes.len() {
+            let mut f = &mut self.flakes[i];
+            f.y = between.ind_sample(&mut rng) * SCREEN_HEIGHT as f32;
+            f.y -= FLAKE_SIZE as f32;
+            f.x = between.ind_sample(&mut rng) * SCREEN_WIDTH as f32;
+            f.x -= FLAKE_SIZE as f32 / 2.;
+            f.vx = (between.ind_sample(&mut rng) - 0.5) * 0.2;
+            let vy = (between.ind_sample(&mut rng) * 0.2);
+            f.vy = if vy > min_down_speed {vy} else { min_down_speed };
+            f.size = (FLAKE_SIZE as f32 + between.ind_sample(&mut rng) * 16.) as usize;
+        };
+    }
+
+    fn draw_flakes(&mut self, delta_ms: f32) {
+        for i in 0..self.flakes.len() {
+            let f: &mut Flake = &mut self.flakes[i];
+            f.anim(delta_ms);
+            let flake_rect = rect!(f.x, f.y, f.size, f.size);
+            let _ = self.renderer.copy(&f.tex, None, Some(flake_rect));
+        }
+    }
+
+    fn render(&mut self, delta_ms: f32, weight: u32) {
         self.renderer.set_draw_color(Color::RGBA(102, 58, 23, 255)); // Brown
         self.renderer.clear();
+
+        self.draw_flakes(delta_ms);
 
         let mut tex_level = select_tex_for_level(select_level(weight, &self.level_config), &self.tex_levels);
         let _ = self.renderer.copy(&self.tex_levels.texture_label, None, Some(self.tex_levels.target_label));
@@ -150,6 +213,7 @@ impl<'a> RenderCtx<'a> {
         let weight_tex_rect = rect!(32, self.disp_size.height() - 32 - height, width, height);
         let _ = self.renderer.copy(&weight_tex, None, Some(weight_tex_rect));
 
+
         self.renderer.present();
     }
 }
@@ -157,7 +221,7 @@ impl<'a> RenderCtx<'a> {
 pub fn run(font_path: &Path, reader_and_logger: TtyReaderAndLogger) {
     let sdl_context = sdl2::init().unwrap();
     let video_subsys = sdl_context.video().unwrap();
-    let ttf_context = sdl2_ttf::init().unwrap();
+    let ttf_context = sdl2::ttf::init().unwrap();
 
     //let disp_size = video_subsys.display_bounds(0).ok().expect("Could not read size of display 0");
     let disp_size = Rect::new(0i32, 0i32, SCREEN_WIDTH, SCREEN_HEIGHT);
@@ -175,8 +239,8 @@ pub fn run(font_path: &Path, reader_and_logger: TtyReaderAndLogger) {
     // Load a font
     let mut font = ttf_context.load_font(font_path, 128).unwrap();
     let mut font_percent = ttf_context.load_font(font_path, 32).unwrap();
-    font.set_style(sdl2_ttf::STYLE_BOLD);
-    font_percent.set_style(sdl2_ttf::STYLE_BOLD);
+    font.set_style(sdl2::ttf::STYLE_BOLD);
+    font_percent.set_style(sdl2::ttf::STYLE_BOLD);
 
     let tex_levels = init_gfx(&mut font, &mut renderer, disp_size);
 
@@ -184,12 +248,20 @@ pub fn run(font_path: &Path, reader_and_logger: TtyReaderAndLogger) {
     let (weight_tx, weight_rx) = mpsc::channel();
     let mut previous_weight = 0;
 
+//    let flake_surface = font.render("o")
+//        .blended(Color::RGBA(196, 151, 102, 255)).unwrap();
+    //let flake_tex = renderer.create_texture_from_surface(&flake_surface).unwrap();
+
+    let flake_tex = renderer.load_texture(Path::new("./gfx/flake64.png")).unwrap();
+
+
     let mut render_ctx = RenderCtx {
         level_config: reader_and_logger.level_config.clone(),
         disp_size: disp_size,
         font_percent: font_percent,
         renderer: renderer,
         tex_levels: tex_levels,
+        flakes: [Flake { x: 0.0, y: 0.0, vx: 0.0, vy: 0.1, size: 4, tex: &flake_tex }; NUM_FLAKES],
     };
 
     let reader_arc = Arc::new(Mutex::new(reader_and_logger));
@@ -205,6 +277,8 @@ pub fn run(font_path: &Path, reader_and_logger: TtyReaderAndLogger) {
             }
         }
     });
+
+    render_ctx.init_flakes();
 
     let frame_rate = 60f32;
     let max_frame_time = 1000f32 / frame_rate;
@@ -225,7 +299,7 @@ pub fn run(font_path: &Path, reader_and_logger: TtyReaderAndLogger) {
             }
             _ => previous_weight,
         };
-        render_ctx.render(weight);
+        render_ctx.render(frame_time, weight);
 
         for event in sdl_context.event_pump().unwrap().poll_iter() {
             match event {
