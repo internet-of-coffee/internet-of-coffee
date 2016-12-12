@@ -2,7 +2,6 @@ extern crate sdl2;
 //extern crate sdl2_ttf;
 extern crate rand;
 
-use self::rand::Rng;
 use self::rand::distributions::{IndependentSample, Range};
 
 use std::sync::{Arc, Mutex};
@@ -135,8 +134,8 @@ struct Flake<'a> {
 
 impl<'a> Flake<'a> {
     fn anim(&mut self, delta_ms: f32) {
-        self.x += (self.vx * delta_ms);
-        self.y += (self.vy * delta_ms);
+        self.x += self.vx * delta_ms;
+        self.y += self.vy * delta_ms;
 
         if self.y > SCREEN_HEIGHT as f32 || self.x < -64.0 || self.x > SCREEN_WIDTH as f32 + 64.0 {
             let between = Range::new(0f32, 1.);
@@ -159,7 +158,7 @@ struct RenderCtx<'a> {
     disp_size: Rect,
     flakes: [Flake<'a>; NUM_FLAKES],
 }
-const min_down_speed: f32 = 0.05;
+const MIN_DOWN_SPEED: f32 = 0.05;
 impl<'a> RenderCtx<'a> {
     fn init_flakes(&mut self) {
         let between = Range::new(0f32, 1.);
@@ -171,8 +170,8 @@ impl<'a> RenderCtx<'a> {
             f.x = between.ind_sample(&mut rng) * SCREEN_WIDTH as f32;
             f.x -= FLAKE_SIZE as f32 / 2.;
             f.vx = (between.ind_sample(&mut rng) - 0.5) * 0.2;
-            let vy = (between.ind_sample(&mut rng) * 0.2);
-            f.vy = if vy > min_down_speed {vy} else { min_down_speed };
+            let vy = between.ind_sample(&mut rng) * 0.2;
+            f.vy = if vy > MIN_DOWN_SPEED {vy} else { MIN_DOWN_SPEED };
             f.size = (FLAKE_SIZE as f32 + between.ind_sample(&mut rng) * 16.) as usize;
         };
     }
@@ -225,7 +224,7 @@ pub fn run(font_path: &Path, reader_and_logger: TtyReaderAndLogger) {
 
     //let disp_size = video_subsys.display_bounds(0).ok().expect("Could not read size of display 0");
     let disp_size = Rect::new(0i32, 0i32, SCREEN_WIDTH, SCREEN_HEIGHT);
-    let window = video_subsys.window("SDL2_TTF Example", disp_size.width(), disp_size.height())
+    let window = video_subsys.window("internet-of-coffee", disp_size.width(), disp_size.height())
         .position_centered()
         .opengl()
         .build()
@@ -248,13 +247,7 @@ pub fn run(font_path: &Path, reader_and_logger: TtyReaderAndLogger) {
     let (weight_tx, weight_rx) = mpsc::channel();
     let mut previous_weight = 0;
 
-//    let flake_surface = font.render("o")
-//        .blended(Color::RGBA(196, 151, 102, 255)).unwrap();
-    //let flake_tex = renderer.create_texture_from_surface(&flake_surface).unwrap();
-
     let flake_tex = renderer.load_texture(Path::new("./gfx/flake64.png")).unwrap();
-
-
     let mut render_ctx = RenderCtx {
         level_config: reader_and_logger.level_config.clone(),
         disp_size: disp_size,
