@@ -3,6 +3,7 @@ extern crate regex;
 extern crate ansi_term;
 
 mod gfx;
+mod event_parse;
 use std::env;
 use std::path::Path;
 
@@ -68,6 +69,16 @@ fn main() {
         .ok().expect(format!("Could not open device {}", device_path).as_str());
     let log_file = File::create(logfile_path.clone())
         .ok().expect(format!("Could not open file {} to log to", logfile_path).as_str());
+
+    let mut event_dev = event_parse::open_device(2);
+    match event_dev {
+        Ok(ref mut d) => {
+            println!("{:?}", d);
+            println!("{:?}", d.read());
+            println!("{:?}", d.read())
+        },
+        Err(e) => println!("Error opening event device: {}", e),
+    }
 
 
     let lower_limit = env::args().nth(3).unwrap().parse::<u32>().unwrap();

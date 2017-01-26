@@ -299,7 +299,7 @@ pub fn run(font_path: &Path, reader_and_logger: TtyReaderAndLogger) {
                 Event::Quit { .. } => break 'mainloop,
                 Event::KeyDown { keycode: Some(Keycode::Escape), .. } => break 'mainloop,
                 _ => {
-                    println!("{:?}", event);
+                    //println!("{:?}", event);
                 }
             }
         }
