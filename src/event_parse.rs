@@ -1,48 +1,173 @@
-//use std::path::Path;
+extern crate libevdev_sys;
+extern crate libc;
+use self::libevdev_sys::evdev::*;
+use self::libevdev_sys::linux_input::*;
+use std::ptr;
+use std::ffi::CStr;
+use std::os::unix::io::IntoRawFd;
 use std::fs::File;
-use std::io::{Read};
-use std::mem;
+use self::libc::timeval;
 
-#[derive(Debug)]
-pub struct EventData {
-    sec: u32,
-    ms: u32,
-    ev_type: u16,
-    code: u16,
-    value: i32,
+#[derive(Debug, Clone)]
+enum EvdevType {
+    EV_SYN,
+    EV_KEY,
+    EV_REL,
+    EV_ABS,
+    UNDEFINED(u16),
 }
 
-#[derive(Debug)]
+impl From<u16> for EvdevType {
+    fn from(num: u16) -> Self {
+        match num {
+            0 => EvdevType::EV_SYN,
+            1 => EvdevType::EV_KEY,
+            2 => EvdevType::EV_REL,
+            3 => EvdevType::EV_ABS,
+            _ => EvdevType::UNDEFINED(num),
+        }
+    }
+}
+
+//macro_rules! evdev_type {
+//    ($tt, $expr) => (
+//
+//    )
+//}
+//
+//evdev_type!(EV_SYN, 0);
+
+
+
+#[derive(Debug, Clone)]
+enum SynCode {
+    SYN_REPORT,
+    UNDEFINED(u16),
+}
+
+impl From<u16> for SynCode {
+    fn from(num: u16) -> Self {
+        match num {
+            0 => SynCode::SYN_REPORT,
+            _ => SynCode::UNDEFINED(num),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum AbsCode {
+    ABS_X,
+    ABS_Y,
+    UNDEFINED(u16),
+}
+
+impl From<u16> for AbsCode {
+    fn from(num: u16) -> Self {
+        match num {
+            0 => AbsCode::ABS_X,
+            1 => AbsCode::ABS_Y,
+            _ => AbsCode::UNDEFINED(num),
+        }
+    }
+}
+
+
+#[derive(Debug, Clone)]
+enum EvdevCode {
+    SynCode(SynCode),
+    AbsCode(AbsCode),
+    UNDEFINED(u16),
+}
+
+impl From<(u16, u16)> for EvdevCode {
+    fn from(type_and_num: (u16, u16)) -> Self {
+        match EvdevType::from(type_and_num.0) {
+            EvdevType::EV_SYN => EvdevCode::SynCode(SynCode::from(type_and_num.1)),
+            EvdevType::EV_ABS => EvdevCode::AbsCode(AbsCode::from(type_and_num.1)),
+            _ => EvdevCode::UNDEFINED(type_and_num.0),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct EvdevData {
+    code: EvdevCode,
+    val: i32,
+}
+
+impl From<input_event> for EvdevData {
+    fn from(ev: input_event) -> Self {
+        EvdevData {
+            code: EvdevCode::from((ev.type_, ev.code)),
+            val: ev.value,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct EvdevEvent {
+    time: timeval,
+    ev: EvdevData,
+}
+
 pub struct EventDevice {
-    stream: File,
+    stream: *mut libevdev,
+    flags: u32,
+    ev: input_event,
 }
 
 impl EventDevice {
-    pub fn read(&mut self) -> Result<EventData, String> {
-        println!("mem::size_of::<EventData>(): {}", mem::size_of::<EventData>());
-        let mut buff: [u8;160] = [0u8;160];
-        self.stream.read(&mut buff).unwrap();
-//        match Ok(16u32) {
-//            Ok(v) => {
-//                println!("num_bytes: {}", v);
-                //println!("data: {:?}", buff[0..v]);
-//                for n in buff[0..v].iter() {
-//                    println!("{} is a number!", n);
-//                }
-                Ok(EventData{sec:0, ms: 0,
-                    ev_type: ((buff[8] as u16) << 8 | buff[9] as u16) as _,
-                    code: ((buff[10] as u16) << 8 | buff[11] as u16) as _,
-                    value: ((buff[12] as u32) << 24 | (buff[13] as u32) << 16 | (buff[14] as u32) << 8 | buff[15] as u32) as _})
-//            },
-//            Err(_) => Err("err".to_string()),
-            //Err(e) => Err(format!("{:?}", e)),
-//        }
+    pub fn read_name(&mut self) {}
+
+    pub fn read(&mut self) -> Result<EvdevEvent, String> {
+        let mut ev = input_event::default();
+        let ret = unsafe { libevdev_next_event(self.stream, self.flags, &mut ev) };
+
+        ev = ev.clone();
+
+        match ret {
+            r if r == (libevdev_read_status::LIBEVDEV_READ_STATUS_SUCCESS as i32) => {
+                println!("[{}.{}] Code {:?}, Value {}",
+                         ev.time.tv_sec,
+                         ev.time.tv_usec,
+                         EvdevCode::from((ev.type_, ev.code)),
+                         ev.value);
+                Ok(EvdevEvent {
+                    time: ev.time,
+                    ev: ev.into(),
+                })
+            }
+            r if r == (libevdev_read_status::LIBEVDEV_READ_STATUS_SYNC as i32) => {
+                Err("SYNC!".to_string())
+            }
+            r if r == -libc::EAGAIN => {
+                // No events available, sleep and loop
+                //sleep(Duration::from_millis(20));
+                Err("Empty".to_string())
+            }
+            _ => Err(format!("failed to read event: {}", ret)),
+        }
     }
 }
 
 pub fn open_device(dev_nr: usize) -> Result<EventDevice, String> {
-    match File::open(format!("/dev/input/event{}", dev_nr)) {
-        Ok(s) => Ok(EventDevice{stream: s}),
-        Err(e) => Err(format!("{:?}", e)),
+    let file = File::open(format!("/dev/input/event{}", dev_nr)).unwrap();
+    let fd = file.into_raw_fd();
+
+    let mut evdev: *mut libevdev = ptr::null_mut();
+    let ret = unsafe { libevdev_new_from_fd(fd, &mut evdev) };
+    if ret != 0 {
+        panic!("`libevdev_new_from_fd` failed: {}", ret);
     }
+
+    let name = unsafe { libevdev_get_name(evdev) };
+    println!("device name: {}",
+             unsafe { CStr::from_ptr(name) }.to_str().unwrap());
+
+    Ok(EventDevice {
+        stream: evdev,
+        flags: libevdev_read_flag::LIBEVDEV_READ_FLAG_NORMAL as u32 |
+               libevdev_read_flag::LIBEVDEV_READ_FLAG_BLOCKING as u32,
+        ev: input_event::default(),
+    })
 }

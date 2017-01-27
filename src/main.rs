@@ -15,7 +15,7 @@ use ansi_term::Colour;
 pub struct TtyReaderAndLogger {
     tty_usb: File,
     log_file: File,
-    level_config: LevelConfig
+    level_config: LevelConfig,
 }
 
 impl TtyReaderAndLogger {
@@ -30,12 +30,12 @@ impl TtyReaderAndLogger {
                 } else {
                     handle_value(txt, &self.level_config, &mut self.log_file)
                 }
-            },
+            }
             Err(e) => {
                 // "Could not convert data from tty to UTF-8 string"
                 println!("{}", Colour::Purple.paint(e.to_string()));
                 None
-            },
+            }
         }
     }
 }
@@ -66,43 +66,45 @@ fn main() {
 
 
     let tty_usb = File::open(device_path.clone())
-        .ok().expect(format!("Could not open device {}", device_path).as_str());
+        .ok()
+        .expect(format!("Could not open device {}", device_path).as_str());
     let log_file = File::create(logfile_path.clone())
-        .ok().expect(format!("Could not open file {} to log to", logfile_path).as_str());
+        .ok()
+        .expect(format!("Could not open file {} to log to", logfile_path).as_str());
 
-    let mut event_dev = event_parse::open_device(2);
-    match event_dev {
-        Ok(ref mut d) => {
-            println!("{:?}", d);
-            println!("{:?}", d.read());
-            println!("{:?}", d.read())
-        },
-        Err(e) => println!("Error opening event device: {}", e),
+    let mut event_dev = event_parse::open_device(2).unwrap();
+    event_dev.read_name();
+    loop {
+        event_dev.read();
     }
-
 
     let lower_limit = env::args().nth(3).unwrap().parse::<u32>().unwrap();
     let upper_limit = env::args().nth(4).unwrap().parse::<u32>().unwrap();
 
     let path: &Path = Path::new("fonts/comicbd.ttf");
-    gfx::run(path, TtyReaderAndLogger {
-        tty_usb: tty_usb,
-        log_file: log_file,
-        level_config: LevelConfig {
-            max: upper_limit,
-            min: lower_limit,
-        }
-    });
+    gfx::run(path,
+             TtyReaderAndLogger {
+                 tty_usb: tty_usb,
+                 log_file: log_file,
+                 level_config: LevelConfig {
+                     max: upper_limit,
+                     min: lower_limit,
+                 },
+             });
 }
 
 
 
 fn handle_value(line: &str, level_config: &LevelConfig, log_file: &mut File) -> Option<u32> {
-    if line.len() == 0 { None } else {
+    if line.len() == 0 {
+        None
+    } else {
         let regex_pattern = r"\d+";
         let weight_matcher = Regex::new(regex_pattern).unwrap();
         let now = chrono::UTC::now();
-        let data_str = format!("{}: {}\n", now.format("%b %-d, %-I:%M:%S%.3f").to_string(), line);
+        let data_str = format!("{}: {}\n",
+                               now.format("%b %-d, %-I:%M:%S%.3f").to_string(),
+                               line);
         let caps = weight_matcher.captures(line);
         let status_str = match caps {
             Some(c) => c.at(0).unwrap(),
@@ -110,12 +112,14 @@ fn handle_value(line: &str, level_config: &LevelConfig, log_file: &mut File) -> 
         };
 
         let parse_res = match status_str.parse::<u32>() {
-            Ok(r) =>
+            Ok(r) => {
                 (match select_level(r, level_config) {
-                    CoffeeLevel::HIGH => Colour::Green.paint("HIGH"),
-                    CoffeeLevel::NORMAL => Colour::Yellow.paint("NORMAL"),
-                    CoffeeLevel::LOW => Colour::Red.paint("LOW"),
-                }, Some(r)),
+                     CoffeeLevel::HIGH => Colour::Green.paint("HIGH"),
+                     CoffeeLevel::NORMAL => Colour::Yellow.paint("NORMAL"),
+                     CoffeeLevel::LOW => Colour::Red.paint("LOW"),
+                 },
+                 Some(r))
+            }
             Err(_) => (Colour::Cyan.paint("UNKNOWN"), None),
         };
 
