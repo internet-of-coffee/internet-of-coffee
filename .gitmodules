@@ -1,0 +1,3 @@
+[submodule "event_parse"]
+	path = event_parse
+	url = https://github.com/jburell/event_parse.git
