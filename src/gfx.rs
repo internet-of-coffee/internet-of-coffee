@@ -278,6 +278,11 @@ pub fn run(font_path: &Path, reader_and_logger: TtyReaderAndLogger) {
     let mut frame_time = 0f32;
     let mut start_time;
 
+    use std::fs::File;
+    use std::io::Read;
+    let mut mouse_tty = File::open("/dev/input/event1").unwrap();
+    let mut mouse_data: [u8; 1024] = [0; 1024];
+
     'mainloop: loop {
         start_time = SystemTime::now();
 
@@ -293,6 +298,18 @@ pub fn run(font_path: &Path, reader_and_logger: TtyReaderAndLogger) {
             _ => previous_weight,
         };
         render_ctx.render(frame_time, weight);
+
+        match mouse_tty.read(&mut mouse_data) {
+            Ok(r) => {
+                println!("Num bytes: {}", r);
+                for i in 0 .. r {
+                    println!("{:x}", mouse_data[i]);
+                }
+            },
+            Err(e) => {
+                println!("Error: {:?}", e);
+            }
+        }
 
         for event in sdl_context.event_pump().unwrap().poll_iter() {
             match event {
