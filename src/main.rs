@@ -1,9 +1,9 @@
 extern crate chrono;
 extern crate regex;
 extern crate ansi_term;
+extern crate event_parse;
 
 mod gfx;
-mod event_parse;
 use std::env;
 use std::path::Path;
 

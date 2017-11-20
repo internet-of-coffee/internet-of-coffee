@@ -8,7 +8,7 @@ use std::os::unix::io::IntoRawFd;
 use std::fs::File;
 use self::libc::timeval;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 enum EvdevType {
     EV_SYN,
     EV_KEY,
@@ -39,7 +39,7 @@ impl From<u16> for EvdevType {
 
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum SynCode {
     SYN_REPORT,
     UNDEFINED(u16),
@@ -54,7 +54,7 @@ impl From<u16> for SynCode {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum AbsCode {
     ABS_X,
     ABS_Y,
@@ -72,7 +72,7 @@ impl From<u16> for AbsCode {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum EvdevCode {
     SynCode(SynCode),
     AbsCode(AbsCode),
@@ -170,4 +170,19 @@ pub fn open_device(dev_nr: usize) -> Result<EventDevice, String> {
                libevdev_read_flag::LIBEVDEV_READ_FLAG_BLOCKING as u32,
         ev: input_event::default(),
     })
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn parse_event_test() {
+        let expected = AbsCode::ABS_Y;
+        if let EvdevCode::AbsCode(actual) = EvdevCode::from((3u16,1u16)) {
+            assert_eq!(expected, actual);
+        } else {
+            panic!("Expected AbsCode");
+        }
+    }
 }
